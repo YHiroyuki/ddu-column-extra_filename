@@ -28,7 +28,15 @@ type ActionData = {
   path?: string;
 };
 
+type IconData = {
+  icon: string;
+  hiGroup: string;
+  color: string;
+};
+
 export class Column extends BaseColumn<Params> {
+  private readonly textEncoder = new TextEncoder();
+
   override async getLength(args: {
     denops: Denops;
     columnParams: Params;
@@ -76,40 +84,6 @@ export class Column extends BaseColumn<Params> {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
-    if (isDirectory) {
-      const userHighlights = args.columnParams.highlights;
-      highlights.push({
-        name: "column-filename-directory-icon",
-        hl_group: userHighlights.directoryIcon ?? "Special",
-        col: args.startCol + args.item.__level * 2,
-        width: args.columnParams.iconWidth,
-      });
-
-      highlights.push({
-        name: "column-filename-directory-name",
-        hl_group: userHighlights.directoryName ?? "Directory",
-        col: args.startCol + args.item.__level * 2 + args.columnParams.iconWidth +
-          1,
-        width: path.length,
-      });
-    } else if (isLink) {
-      const userHighlights = args.columnParams.highlights;
-      highlights.push({
-        name: "column-filename-link-icon",
-        hl_group: userHighlights.linkIcon ?? "Comment",
-        col: args.startCol + args.item.__level,
-        width: args.columnParams.iconWidth,
-      });
-
-      highlights.push({
-        name: "column-filename-link-name",
-        hl_group: userHighlights.linkName ?? "Comment",
-        col: args.startCol + args.item.__level * 2 + args.columnParams.iconWidth +
-          1,
-        width: path.length,
-      });
-    }
-
     const directoryIcon = args.item.__expanded
       ? ""
       : isLink
@@ -121,7 +95,16 @@ export class Column extends BaseColumn<Params> {
       ? ""
       : "";
 
-    const text = "├ ".repeat(args.item.__level) + icon + " " + path;
+    const indent = "├ ".repeat(args.item.__level)
+
+    highlights.push({
+      name: "column-filename-icon",
+      hl_group: "Special",
+      col: args.startCol + this.textEncoder.encode(indent).length,
+      width: this.textEncoder.encode(icon).length,
+    });
+
+    const text = indent + icon + " " + path;
     const width = await fn.strwidth(args.denops, text) as number;
     const padding = " ".repeat(args.endCol - args.startCol - width);
 
@@ -141,3 +124,7 @@ export class Column extends BaseColumn<Params> {
     };
   }
 }
+
+const icons = new Map<string, IconData>([
+  ['default', {icon:"+", hiGroup: "", color: ""}],
+])
