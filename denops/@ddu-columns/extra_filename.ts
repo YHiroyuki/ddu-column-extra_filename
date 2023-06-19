@@ -30,7 +30,7 @@ type ActionData = {
 
 type IconData = {
   icon: string;
-  hiGroup: string;
+  highlightGroup: string;
   color: string;
 };
 
@@ -84,27 +84,20 @@ export class Column extends BaseColumn<Params> {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
-    const directoryIcon = args.item.__expanded
-      ? ""
-      : isLink
-      ? ""
-      : "";
-    const icon = isDirectory
-      ? directoryIcon
-      : isLink
-      ? ""
-      : "";
-
     const indent = "├ ".repeat(args.item.__level)
 
+    const iconData = this.getIcon(args.item.__expanded, isDirectory, isLink); 
+    const iconBytesLength = this.textEncoder.encode(iconData.icon).length;
+    const highlightGroup = `ddu_column_${iconData.highlightGroup}`;
     highlights.push({
       name: "column-filename-icon",
-      hl_group: "Special",
+      hl_group: highlightGroup,
       col: args.startCol + this.textEncoder.encode(indent).length,
-      width: this.textEncoder.encode(icon).length,
+      width: iconBytesLength,
     });
+    await args.denops.cmd(`hi default link ${highlightGroup} ${iconData.color}`);
 
-    const text = indent + icon + " " + path;
+    const text = indent + iconData.icon + " " + path;
     const width = await fn.strwidth(args.denops, text) as number;
     const padding = " ".repeat(args.endCol - args.startCol - width);
 
@@ -123,8 +116,26 @@ export class Column extends BaseColumn<Params> {
       highlights: {},
     };
   }
+
+  private getIcon(
+    expanded: boolean,
+    isDirectory: boolean,
+    isLink: boolean,
+  ): IconData {
+    if (expanded) {
+      return {icon: "", highlightGroup: "directory_expanded", color: "Special"};
+    } else if (isDirectory) {
+      if (isLink) {
+        return {icon: "", highlightGroup: "directory_link", color: "Special"};
+      }
+      return {icon: "", highlightGroup: "directory", color: "Special"};
+    }
+
+    if (isLink) {
+      return {icon: "", highlightGroup: "link", color: "Special"};
+
+    }
+    return {icon: "", highlightGroup: "file", color: "Normal"};
+  }
 }
 
-const icons = new Map<string, IconData>([
-  ['default', {icon:"+", hiGroup: "", color: ""}],
-])
