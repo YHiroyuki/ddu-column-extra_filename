@@ -46,9 +46,10 @@ export class Column extends BaseColumn<Params> {
           path += ` -> ${await Deno.realPath(action.path)}`;
         }
 
-        const length = item.__level * 2 + 1 + (await fn.strwidth(
+        // indent + icon + spacer + filepath
+        const length = (item.__level * 2) + args.columnParams.iconWidth + 1 + (await fn.strwidth(
           args.denops,
-          args.columnParams.iconWidth + path,
+          path,
         ) as number);
 
         return length;
