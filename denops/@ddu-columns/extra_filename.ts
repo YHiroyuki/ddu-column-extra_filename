@@ -110,12 +110,14 @@ export class Column extends BaseColumn<Params> {
     }
 
     const directoryIcon = args.item.__expanded
-      ? args.columnParams.expandedIcon
-      : args.columnParams.collapsedIcon;
+      ? ""
+      : isLink
+      ? ""
+      : "";
     const icon = isDirectory
       ? directoryIcon
       : isLink
-      ? args.columnParams.linkIcon
+      ? ""
       : "";
 
     const text = "├ ".repeat(args.item.__level) + icon + " " + path;
