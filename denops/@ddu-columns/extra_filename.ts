@@ -7,6 +7,7 @@ import { GetTextResult } from "https://deno.land/x/ddu_vim@v3.0.0/base/column.ts
 import { Denops, fn } from "https://deno.land/x/ddu_vim@v3.0.0/deps.ts";
 import { basename } from "https://deno.land/std@0.190.0/path/mod.ts";
 
+
 type Params = {
   collapsedIcon: string;
   expandedIcon: string;
@@ -34,8 +35,23 @@ type IconData = {
   color: string;
 };
 
+type DirEntry = {
+  name: string;
+  isFile: boolean;
+  isDirectory: boolean;
+  isSymlink: boolean;
+}
+
 export class Column extends BaseColumn<Params> {
   private readonly textEncoder = new TextEncoder();
+  private cache = new Map<string, string>;
+
+  constructor() {
+    console.log("*****");
+    console.log("Column");
+    console.log("*****");
+    super();
+  }
 
   override async getLength(args: {
     denops: Denops;
@@ -80,11 +96,15 @@ export class Column extends BaseColumn<Params> {
     let path = basename(action.path ?? args.item.word) +
       (isDirectory ? "/" : "");
 
+    console.log("-----------------");
+    console.log(action.path)
     if (isLink && action.path) {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
-    const indent = "├ ".repeat(args.item.__level)
+    const indent = await this.getIndent(action.path ?? '', args.item.__level);
+    // const indent = '';
+    const indentBytesLength = this.textEncoder.encode(indent).length;
 
     const iconData = this.getIcon(args.item.__expanded, isDirectory, isLink); 
     const iconBytesLength = this.textEncoder.encode(iconData.icon).length;
@@ -92,7 +112,7 @@ export class Column extends BaseColumn<Params> {
     highlights.push({
       name: "column-filename-icon",
       hl_group: highlightGroup,
-      col: args.startCol + this.textEncoder.encode(indent).length,
+      col: args.startCol + indentBytesLength,
       width: iconBytesLength,
     });
     await args.denops.cmd(`hi default link ${highlightGroup} ${iconData.color}`);
@@ -115,6 +135,54 @@ export class Column extends BaseColumn<Params> {
       linkIcon: "@",
       highlights: {},
     };
+  }
+
+  private async getIndent(path: string, level: number): Promise<string> {
+    const indents = [];
+
+    for (let i = 0; i < level; i++) {
+      const paths = path.split("/");
+      const name = paths.slice(-1)[0];
+      const parentPath = paths.slice(0, -1).join("/");
+      if (!this.cache.has(parentPath)) {
+        let entry: DirEntry | null = null;
+        for await (const _entry of Deno.readDir(parentPath)) {
+          if (entry == null) {
+            entry = _entry as DirEntry;
+          } else if (entry.isDirectory == _entry.isDirectory) {
+            if (entry.name < _entry.name) {
+              entry = _entry as DirEntry;
+            }
+
+          } else if (!_entry.isDirectory) {
+            entry = _entry as DirEntry;
+          }
+          console.log(entry);
+        }
+        if (entry != null) {
+          this.cache.set(parentPath, entry.name);
+        }
+      }
+      path = parentPath
+
+      const lastName = this.cache.get(parentPath) ?? "";
+      const isLast = lastName == name;
+      if (i == 0) {
+        if (isLast) {
+          indents.unshift("└ ");
+        } else {
+          indents.unshift("├ ");
+        }
+      } else {
+        if (isLast) {
+          indents.unshift("  ");
+        } else {
+          indents.unshift("│ ");
+        }
+      }
+
+    }
+    return Promise.resolve(indents.join(''));
   }
 
   private getIcon(
