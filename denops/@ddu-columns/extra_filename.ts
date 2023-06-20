@@ -5,7 +5,7 @@ import {
 } from "https://deno.land/x/ddu_vim@v3.0.0/types.ts";
 import { GetTextResult } from "https://deno.land/x/ddu_vim@v3.0.0/base/column.ts";
 import { Denops, fn } from "https://deno.land/x/ddu_vim@v3.0.0/deps.ts";
-import { basename } from "https://deno.land/std@0.190.0/path/mod.ts";
+import { basename, extname } from "https://deno.land/std@0.190.0/path/mod.ts";
 
 
 type Params = {
@@ -47,9 +47,6 @@ export class Column extends BaseColumn<Params> {
   private cache = new Map<string, string>;
 
   constructor() {
-    console.log("*****");
-    console.log("Column");
-    console.log("*****");
     super();
   }
 
@@ -96,17 +93,14 @@ export class Column extends BaseColumn<Params> {
     let path = basename(action.path ?? args.item.word) +
       (isDirectory ? "/" : "");
 
-    console.log("-----------------");
-    console.log(action.path)
     if (isLink && action.path) {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
     const indent = await this.getIndent(action.path ?? '', args.item.__level);
-    // const indent = '';
     const indentBytesLength = this.textEncoder.encode(indent).length;
 
-    const iconData = this.getIcon(args.item.__expanded, isDirectory, isLink); 
+    const iconData = this.getIcon(path, args.item.__expanded, isDirectory, isLink); 
     const iconBytesLength = this.textEncoder.encode(iconData.icon).length;
     const highlightGroup = `ddu_column_${iconData.highlightGroup}`;
     highlights.push({
@@ -115,7 +109,18 @@ export class Column extends BaseColumn<Params> {
       col: args.startCol + indentBytesLength,
       width: iconBytesLength,
     });
-    await args.denops.cmd(`hi default link ${highlightGroup} ${iconData.color}`);
+
+    const color = (() => {
+      const c = iconData.color;
+      return c.startsWith("!")
+        ? colors.get(c.slice(1)) ?? "Normal"
+        : c;
+    })();
+    if (color.startsWith("#")) {
+      await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
+    } else {
+      await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
+    }
 
     const text = indent + iconData.icon + " " + path;
     const width = await fn.strwidth(args.denops, text) as number;
@@ -157,7 +162,6 @@ export class Column extends BaseColumn<Params> {
           } else if (!_entry.isDirectory) {
             entry = _entry as DirEntry;
           }
-          console.log(entry);
         }
         if (entry != null) {
           this.cache.set(parentPath, entry.name);
@@ -186,24 +190,85 @@ export class Column extends BaseColumn<Params> {
   }
 
   private getIcon(
+    fileName: string,
     expanded: boolean,
     isDirectory: boolean,
     isLink: boolean,
   ): IconData {
     if (expanded) {
-      return {icon: "", highlightGroup: "directory_expanded", color: "Special"};
+      return {icon: "", highlightGroup: "directory_expanded", color: palette.green};
     } else if (isDirectory) {
       if (isLink) {
-        return {icon: "", highlightGroup: "directory_link", color: "Special"};
+        return {icon: "", highlightGroup: "directory_link", color: palette.green};
       }
-      return {icon: "", highlightGroup: "directory", color: "Special"};
+      return {icon: "", highlightGroup: "directory", color: palette.green};
     }
-
     if (isLink) {
-      return {icon: "", highlightGroup: "link", color: "Special"};
+      return {icon: "", highlightGroup: "link", color: palette.green};
 
     }
-    return {icon: "", highlightGroup: "file", color: "Normal"};
+
+    const ext = extname(fileName).substring(1);
+    return extentionIcons.get(ext) ?? {icon: "", highlightGroup: "file", color: "Normal"};
   }
 }
+const colors = new Map<string, string>([
+  ["default", "Normal"],
+  ["aqua", "#3AFFDB"],
+  ["beige", "#F5C06F"],
+  ["blue", "#689FB6"],
+  ["brown", "#905532"],
+  ["darkBlue", "#44788E"],
+  ["darkOrange", "#F16529"],
+  ["green", "#8FAA54"],
+  ["lightGreen", "#31B53E"],
+  ["lightPurple", "#834F79"],
+  ["orange", "#D4843E"],
+  ["pink", "#CB6F6F"],
+  ["purple", "#834F79"],
+  ["red", "#AE403F"],
+  ["salmon", "#EE6E73"],
+  ["yellow", "#F09F17"],
+]);
+
+const palette = {
+  default: "!default",
+  aqua: "!aqua",
+  beige: "!beige",
+  blue: "!blue",
+  brown: "!brown",
+  darkBlue: "!darkBlue",
+  darkOrange: "!darkOrange",
+  green: "!green",
+  lightGreen: "!lightGreen",
+  lightPurple: "!lightPurple",
+  orange: "!orange",
+  pink: "!pink",
+  purple: "!purple",
+  red: "!red",
+  salmon: "!salmon",
+  yellow: "!yellow",
+};
+
+const extentionIcons = new Map<string, IconData>([
+  ['html', {icon: "", highlightGroup: "file_html", color: palette.darkOrange}],
+  ['htm', {icon: "", highlightGroup: "file_htm", color: palette.darkOrange}],
+  ['sass', {icon: "", highlightGroup: "file_sass", color: palette.default}],
+  ['scss', {icon: "", highlightGroup: "file_scss", color: palette.pink}],
+  ['css', {icon: "", highlightGroup: "file_css", color: palette.blue}],
+  ['md', {icon: "", highlightGroup: "file_md", color: palette.yellow}],
+  ['markdown', {icon: "", highlightGroup: "file_markdown", color: palette.yellow}],
+  ['json', {icon: "", highlightGroup: "file_json", color: palette.beige}],
+  ['js', {icon: "", highlightGroup: "file_js", color: palette.beige}],
+  ['rb', {icon: "", highlightGroup: "file_rb", color: palette.red}],
+  ['php', {icon: "", highlightGroup: "file_php", color: palette.purple}],
+  ['py', {icon: "", highlightGroup: "file_py", color: palette.yellow}],
+  ['pyc', {icon: "", highlightGroup: "file_pyc", color: palette.yellow}],
+  ['vim', {icon: "", highlightGroup: "file_vim", color: palette.green}],
+  ['toml', {icon: "", highlightGroup: "file_toml", color: palette.default}],
+  ['sh', {icon: "", highlightGroup: "file_sh", color: palette.lightPurple}],
+  ['go', {icon: "", highlightGroup: "file_go", color: palette.aqua}],
+  ['ts', {icon: "", highlightGroup: "file_ts", color: palette.blue}],
+
+]);
 
