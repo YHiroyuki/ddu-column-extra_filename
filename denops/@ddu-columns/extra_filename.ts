@@ -205,11 +205,10 @@ export class Column extends BaseColumn<Params> {
     }
     if (isLink) {
       return {icon: "", highlightGroup: "link", color: palette.green};
-
     }
 
     const ext = extname(fileName).substring(1);
-    return extentionIcons.get(ext) ?? {icon: "", highlightGroup: "file", color: "Normal"};
+    return extensionIcons.get(ext) ?? {icon: "", highlightGroup: "file", color: "Normal"};
   }
 }
 const colors = new Map<string, string>([
@@ -250,7 +249,7 @@ const palette = {
   yellow: "!yellow",
 };
 
-const extentionIcons = new Map<string, IconData>([
+const extensionIcons = new Map<string, IconData>([
   ['html', {icon: "", highlightGroup: "file_html", color: palette.darkOrange}],
   ['htm', {icon: "", highlightGroup: "file_htm", color: palette.darkOrange}],
   ['sass', {icon: "", highlightGroup: "file_sass", color: palette.default}],
