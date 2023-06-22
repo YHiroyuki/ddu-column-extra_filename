@@ -35,6 +35,11 @@ type IconData = {
   color: string;
 };
 
+type GitStatus = {
+  status: string;
+  color: string;
+};
+
 type DirEntry = {
   name: string;
   isFile: boolean;
@@ -45,6 +50,8 @@ type DirEntry = {
 export class Column extends BaseColumn<Params> {
   private readonly textEncoder = new TextEncoder();
   private cache = new Map<string, string>;
+  private gitRoot: string | undefined;
+  private gitFilenames = new Map<string, string>;
 
   constructor() {
     super();
@@ -122,6 +129,31 @@ export class Column extends BaseColumn<Params> {
       await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
     }
 
+    await this.initGit(args.denops);
+    const fullPath = (action.path ?? '') + (isDirectory ? "/" : "");
+    const gitStatus = this.getGitStatus(fullPath)
+    if (gitStatus != null) {
+      const highlightGroup = `ddu_column_git_${gitStatus.status}`;
+      const color = (() => {
+        const c = gitStatus.color
+        return c.startsWith("!")
+          ? colors.get(c.slice(1)) ?? "Normal"
+          : c;
+      })();
+
+      if (color.startsWith("#")) {
+        await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
+      } else {
+        await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
+      }
+      highlights.push({
+        name: "column-filename-name",
+        hl_group: highlightGroup,
+        col: args.startCol + indentBytesLength + iconBytesLength + 1,
+        width: this.textEncoder.encode(path).length,
+      });
+    }
+
     const text = indent + iconData.icon + " " + path;
     const width = await fn.strwidth(args.denops, text) as number;
     const padding = " ".repeat(args.endCol - args.startCol - width);
@@ -140,6 +172,52 @@ export class Column extends BaseColumn<Params> {
       linkIcon: "@",
       highlights: {},
     };
+  }
+
+  private async initGit(denops: Denops) {
+    if (this.gitRoot != undefined) {
+      return;
+    }
+    const gitRoot = await denops.call("system", 'git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null | head -1');
+    this.gitRoot = (gitRoot as string).trim();
+
+    // ここからしたを再描画に移動
+    if (this.gitRoot == '' || this.gitRoot == undefined) {
+      return;
+    }
+    const gitStatusData = await denops.call("system", 'git status --porcelain -u')
+    const gitStatusString = gitStatusData as string;
+    for (const gitStatus of gitStatusString.trimEnd().split("\n")) {
+      const status = gitStatus.slice(0, 3).trim()
+      const name = gitStatus.slice(3)
+      this.gitFilenames.set(`${this.gitRoot}/${name}`, status);
+    }
+  }
+
+  private getGitStatus(fullPath: string): GitStatus | null {
+    const status = this.gitFilenames.get(fullPath) ?? '';
+    if (status != '') {
+      return gitStatuses.get(status) ?? null;
+    }
+
+    let st = null;
+    for (const key of this.gitFilenames.keys()) {
+      if (key.startsWith(fullPath)) {
+        const s = this.gitFilenames.get(key) ?? null;
+        if (s == null) {
+          continue;
+        }
+        if (st == null || st > s) {
+          st = s;
+        }
+
+      }
+    }
+    if (st == null) {
+      return null;
+    }
+
+    return gitStatuses.get(st) ?? null;
   }
 
   private async getIndent(path: string, level: number): Promise<string> {
@@ -271,3 +349,13 @@ const extensionIcons = new Map<string, IconData>([
 
 ]);
 
+const gitStatuses = new Map<string, GitStatus>([
+  ['M', {status: "modified", color: palette.green}],
+  ['T', {status: "type_change", color: palette.yellow}],
+  ['A', {status :'add', color: palette.blue}],
+  ['D', {status: 'delete', color: palette.salmon}],
+  ['R', {status: 'rename', color: palette.yellow}],
+  ['C', {status: 'copy', color: palette.blue}],
+  ['U', {status: 'copy', color: palette.green}],
+  ['??', {status: 'undefined', color: palette.yellow}],
+]);
