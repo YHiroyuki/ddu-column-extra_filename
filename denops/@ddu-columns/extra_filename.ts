@@ -1,5 +1,6 @@
 import {
   BaseColumn,
+  ColumnOptions,
   DduItem,
   ItemHighlight,
 } from "https://deno.land/x/ddu_vim@v3.0.0/types.ts";
@@ -13,14 +14,11 @@ type Params = {
   expandedIcon: string;
   iconWidth: number;
   linkIcon: string;
-  highlights: HighlightGroup;
 };
 
-type HighlightGroup = {
-  directoryIcon?: string;
-  directoryName?: string;
-  linkIcon?: string;
-  linkName?: string;
+type Highlight = {
+  highlightGroup: string;
+  color: string;
 };
 
 type ActionData = {
@@ -36,7 +34,8 @@ type IconData = {
 };
 
 type GitStatus = {
-  status: string;
+  status: number;
+  highlightGroup: string;
   color: string;
 };
 
@@ -52,9 +51,56 @@ export class Column extends BaseColumn<Params> {
   private cache = new Map<string, string>;
   private gitRoot: string | undefined;
   private gitFilenames = new Map<string, string>;
+  private readonly defaultFileIcon = {icon: "", highlightGroup: "file", color: "Normal"};
 
   constructor() {
     super();
+  }
+
+  override async onInit(args: {
+    denops: Denops;
+    columnOptions: ColumnOptions;
+    columnParams: Params;
+  }): Promise<void> {
+    await super.onInit(args);
+
+    const highlights = [];
+    highlights.push({
+      highlightGroup: this.defaultFileIcon.highlightGroup,
+      color: this.defaultFileIcon.color,
+    });
+    for (const gitStatus of gitStatuses.values()) {
+      highlights.push({
+        highlightGroup: gitStatus.highlightGroup,
+        color: gitStatus.color,
+      });
+    }
+    for (const icon of specialIcons.values()) {
+      highlights.push({
+        highlightGroup: icon.highlightGroup,
+        color: icon.color,
+      });
+    }
+    for (const icon of extensionIcons.values()) {
+      highlights.push({
+        highlightGroup: icon.highlightGroup,
+        color: icon.color,
+      });
+    }
+    for (const highlight of highlights) {
+      const highlightGroup = this.getHighlightName(highlight.highlightGroup);
+      const color = (() => {
+        const c = highlight.color;
+        return c.startsWith("!")
+          ? colors.get(c.slice(1)) ?? "Normal"
+          : c;
+      })();
+      if (color.startsWith("#")) {
+        await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
+      } else {
+        await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
+      }
+    }
   }
 
   override async getLength(args: {
@@ -109,46 +155,21 @@ export class Column extends BaseColumn<Params> {
 
     const iconData = this.getIcon(path, args.item.__expanded, isDirectory, isLink); 
     const iconBytesLength = this.textEncoder.encode(iconData.icon).length;
-    const highlightGroup = `ddu_column_${iconData.highlightGroup}`;
+
     highlights.push({
       name: "column-filename-icon",
-      hl_group: highlightGroup,
+      hl_group: this.getHighlightName(iconData.highlightGroup),
       col: args.startCol + indentBytesLength,
       width: iconBytesLength,
     });
-
-    const color = (() => {
-      const c = iconData.color;
-      return c.startsWith("!")
-        ? colors.get(c.slice(1)) ?? "Normal"
-        : c;
-    })();
-    if (color.startsWith("#")) {
-      await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
-    } else {
-      await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
-    }
 
     await this.initGit(args.denops);
     const fullPath = (action.path ?? '') + (isDirectory ? "/" : "");
     const gitStatus = this.getGitStatus(fullPath)
     if (gitStatus != null) {
-      const highlightGroup = `ddu_column_git_${gitStatus.status}`;
-      const color = (() => {
-        const c = gitStatus.color
-        return c.startsWith("!")
-          ? colors.get(c.slice(1)) ?? "Normal"
-          : c;
-      })();
-
-      if (color.startsWith("#")) {
-        await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
-      } else {
-        await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
-      }
       highlights.push({
         name: "column-filename-name",
-        hl_group: highlightGroup,
+        hl_group: this.getHighlightName(gitStatus.highlightGroup),
         col: args.startCol + indentBytesLength + iconBytesLength + 1,
         width: this.textEncoder.encode(path).length,
       });
@@ -170,7 +191,6 @@ export class Column extends BaseColumn<Params> {
       expandedIcon: "",
       iconWidth: 1,
       linkIcon: "@",
-      highlights: {},
     };
   }
 
@@ -274,21 +294,27 @@ export class Column extends BaseColumn<Params> {
     isLink: boolean,
   ): IconData {
     if (expanded) {
-      return {icon: "", highlightGroup: "directory_expanded", color: palette.green};
+      return specialIcons.get('directory_expanded') ?? this.defaultFileIcon;
     } else if (isDirectory) {
       if (isLink) {
-        return {icon: "", highlightGroup: "directory_link", color: palette.green};
+        return specialIcons.get('directory_link') ?? this.defaultFileIcon;
       }
-      return {icon: "", highlightGroup: "directory", color: palette.green};
+      return specialIcons.get('directory') ?? this.defaultFileIcon;
     }
     if (isLink) {
-      return {icon: "", highlightGroup: "link", color: palette.green};
+      return specialIcons.get('link') ?? this.defaultFileIcon;
     }
 
     const ext = extname(fileName).substring(1);
-    return extensionIcons.get(ext) ?? {icon: "", highlightGroup: "file", color: "Normal"};
+    return extensionIcons.get(ext) ?? this.defaultFileIcon;
+  }
+
+  private getHighlightName(highlightGroup: string): string
+  {
+    return `ddu_column_rich_filename_${highlightGroup}`;
   }
 }
+
 const colors = new Map<string, string>([
   ["default", "Normal"],
   ["aqua", "#3AFFDB"],
@@ -327,6 +353,13 @@ const palette = {
   yellow: "!yellow",
 };
 
+const specialIcons = new Map<string, IconData>([
+  ['directory_expanded', {icon: "", highlightGroup: "special_directory_expanded", color: palette.green}],
+  ['directory_link', {icon: "", highlightGroup: "special_directory_link", color: palette.green}],
+  ['directory', {icon: "", highlightGroup: "special_directory", color: palette.green}],
+  ['link', {icon: "", highlightGroup: "special_link", color: palette.green}],
+]);
+
 const extensionIcons = new Map<string, IconData>([
   ['html', {icon: "", highlightGroup: "file_html", color: palette.darkOrange}],
   ['htm', {icon: "", highlightGroup: "file_htm", color: palette.darkOrange}],
@@ -349,13 +382,24 @@ const extensionIcons = new Map<string, IconData>([
 
 ]);
 
+const statusNumbers = {
+  delete: 8,
+  modified: 7,
+  type_change: 6,
+  add: 5,
+  rename: 4,
+  copy: 3,
+  update:2,
+  undefined: 1,
+}
+
 const gitStatuses = new Map<string, GitStatus>([
-  ['M', {status: "modified", color: palette.green}],
-  ['T', {status: "type_change", color: palette.yellow}],
-  ['A', {status :'add', color: palette.blue}],
-  ['D', {status: 'delete', color: palette.salmon}],
-  ['R', {status: 'rename', color: palette.yellow}],
-  ['C', {status: 'copy', color: palette.blue}],
-  ['U', {status: 'copy', color: palette.green}],
-  ['??', {status: 'undefined', color: palette.yellow}],
+  ['M', {status: statusNumbers.modified, highlightGroup: "git_modified", color: palette.green}],
+  ['T', {status: statusNumbers.type_change, highlightGroup: "git_type_change", color: palette.yellow}],
+  ['A', {status: statusNumbers.add, highlightGroup: 'git_add', color: palette.blue}],
+  ['D', {status: statusNumbers.delete, highlightGroup: 'git_delete', color: palette.salmon}],
+  ['R', {status: statusNumbers.rename, highlightGroup: 'git_rename', color: palette.yellow}],
+  ['C', {status: statusNumbers.copy, highlightGroup: 'git_copy', color: palette.blue}],
+  ['U', {status: statusNumbers.update, highlightGroup: 'git_copy', color: palette.green}],
+  ['??', {status: statusNumbers.undefined, highlightGroup: 'git_undefined', color: palette.yellow}],
 ]);
