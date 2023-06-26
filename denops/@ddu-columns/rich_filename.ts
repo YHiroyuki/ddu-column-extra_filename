@@ -10,10 +10,8 @@ import { basename, extname } from "https://deno.land/std@0.190.0/path/mod.ts";
 
 
 type Params = {
-  collapsedIcon: string;
-  expandedIcon: string;
-  iconWidth: number;
-  linkIcon: string;
+  sort: string;
+  sortTreesFirst: boolean;
 };
 
 type Highlight = {
@@ -64,7 +62,7 @@ export class Column extends BaseColumn<Params> {
   }): Promise<void> {
     await super.onInit(args);
 
-    const highlights = [];
+    const highlights: Highlight[] = [];
     highlights.push({
       highlightGroup: this.defaultFileIcon.highlightGroup,
       color: this.defaultFileIcon.color,
@@ -121,7 +119,7 @@ export class Column extends BaseColumn<Params> {
         }
 
         // indent + icon + spacer + filepath
-        const length = (item.__level * 2) + args.columnParams.iconWidth + 1 + (await fn.strwidth(
+        const length = (item.__level * 2) + 3 + 1 + (await fn.strwidth(
           args.denops,
           path,
         ) as number);
@@ -150,7 +148,8 @@ export class Column extends BaseColumn<Params> {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
-    const indent = await this.getIndent(action.path ?? '', args.item.__level);
+
+    const indent = await this.getIndent(action.path ?? '', args.item.__level, args.columnParams);
     const indentBytesLength = this.textEncoder.encode(indent).length;
 
     const iconData = this.getIcon(path, args.item.__expanded, isDirectory, isLink); 
@@ -187,10 +186,8 @@ export class Column extends BaseColumn<Params> {
 
   override params(): Params {
     return {
-      collapsedIcon: "",
-      expandedIcon: "",
-      iconWidth: 1,
-      linkIcon: "@",
+      sort: 'none',
+      sortTreesFirst: false,
     };
   }
 
@@ -240,7 +237,7 @@ export class Column extends BaseColumn<Params> {
     return gitStatuses.get(st) ?? null;
   }
 
-  private async getIndent(path: string, level: number): Promise<string> {
+  private async getIndent(path: string, level: number, params: Params): Promise<string> {
     const indents = [];
 
     for (let i = 0; i < level; i++) {
@@ -248,20 +245,26 @@ export class Column extends BaseColumn<Params> {
       const name = paths.slice(-1)[0];
       const parentPath = paths.slice(0, -1).join("/");
       if (!this.cache.has(parentPath)) {
-        let entry: DirEntry | null = null;
+        const entries: DirEntry[] = [];
         for await (const _entry of Deno.readDir(parentPath)) {
-          if (entry == null) {
-            entry = _entry as DirEntry;
-          } else if (entry.isDirectory == _entry.isDirectory) {
-            if (entry.name < _entry.name) {
-              entry = _entry as DirEntry;
-            }
-
-          } else if (!_entry.isDirectory) {
-            entry = _entry as DirEntry;
-          }
+          entries.push(_entry);
         }
-        if (entry != null) {
+        const sortMethod = params.sort.toLowerCase();
+        const sortFunc = sortMethod == 'filename'
+          ? sortByFilename
+          : sortMethod == 'extension'
+          ? sortByExtension
+          : sortByNone;
+        const sortedEntries = entries.sort(sortFunc);
+        let _entries = sortedEntries;
+        if (params.sortTreesFirst) {
+          const dirs = sortedEntries.filter((_entry) => _entry.isDirectory);
+          const files = sortedEntries.filter((_entry) => !_entry.isDirectory);
+          _entries = dirs.concat(files);
+        }
+
+        if (_entries.length > 0) {
+          const entry = _entries[_entries.length - 1];
           this.cache.set(parentPath, entry.name);
         }
       }
@@ -403,3 +406,19 @@ const gitStatuses = new Map<string, GitStatus>([
   ['U', {status: statusNumbers.update, highlightGroup: 'git_copy', color: palette.green}],
   ['??', {status: statusNumbers.undefined, highlightGroup: 'git_undefined', color: palette.yellow}],
 ]);
+
+const sortByFilename = (a: DirEntry, b: DirEntry) => {
+  const nameA = a.name;
+  const nameB = b.name;
+  return nameA < nameB ? -1: nameA > nameB ? 1: 0;
+};
+
+const sortByExtension = (a: DirEntry, b: DirEntry) => {
+  const nameA = extname(a.name);
+  const nameB = extname(b.name);
+  return nameA < nameB ? -1: nameA > nameB ? 1: 0;
+};
+
+const sortByNone = (a: DirEntry, b: DirEntry) => {
+  return 0;
+};
