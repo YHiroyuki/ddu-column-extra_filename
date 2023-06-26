@@ -7,6 +7,7 @@ import {
 import { GetTextResult } from "https://deno.land/x/ddu_vim@v3.0.0/base/column.ts";
 import { Denops, fn } from "https://deno.land/x/ddu_vim@v3.0.0/deps.ts";
 import { basename, extname } from "https://deno.land/std@0.190.0/path/mod.ts";
+import { crypto, toHashString } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 type Params = {
   sort: string;
@@ -41,6 +42,7 @@ export class Column extends BaseColumn<Params> {
   private lastFilenameInDir = new Map<string, string>;
   private gitRoot: string | undefined;
   private gitFilenames = new Map<string, string>;
+  private gitStatusHash: string = '';
   private readonly defaultFileIcon = {icon: "", highlightGroup: "file", color: "Normal"};
 
   constructor() {
@@ -53,6 +55,9 @@ export class Column extends BaseColumn<Params> {
     columnParams: Params;
   }): Promise<void> {
     await super.onInit(args);
+
+    await this.initGit(args.denops);
+    await this.checkGitDiff(args.denops);
 
     const highlights: Highlight[] = [];
     highlights.push({
@@ -99,6 +104,8 @@ export class Column extends BaseColumn<Params> {
     items: DduItem[];
   }): Promise<number> {
     this.setLastFilenameInDir(args.items, args.columnParams);
+    await this.checkGitDiff(args.denops);
+
     const widths = await Promise.all(args.items.map(
       async (item) => {
         const action = item?.action as ActionData;
@@ -130,6 +137,7 @@ export class Column extends BaseColumn<Params> {
     endCol: number;
     item: DduItem;
   }): Promise<GetTextResult> {
+    console.log(this.gitFilenames);
     const action = args.item?.action as ActionData;
     const highlights: ItemHighlight[] = [];
     const isDirectory = args.item.isTree ?? false;
@@ -154,7 +162,6 @@ export class Column extends BaseColumn<Params> {
       width: iconBytesLength,
     });
 
-    await this.initGit(args.denops);
     const fullPath = (action.path ?? '') + (isDirectory ? "/" : "");
     const gitStatus = this.getGitStatus(fullPath)
     if (gitStatus != null) {
@@ -189,14 +196,22 @@ export class Column extends BaseColumn<Params> {
     }
     const gitRoot = await denops.call("system", 'git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null | head -1');
     this.gitRoot = (gitRoot as string).trim();
+  }
 
-    // ここからしたを再描画に移動
+  private async checkGitDiff(denops: Denops) {
     if (this.gitRoot == '' || this.gitRoot == undefined) {
       return;
     }
     const gitStatusData = await denops.call("system", 'git status --porcelain -u')
-    const gitStatusString = gitStatusData as string;
-    for (const gitStatus of gitStatusString.trimEnd().split("\n")) {
+    const gitStatusString = (gitStatusData as string).trimEnd();
+    const hash = toHashString(crypto.subtle.digestSync('MD5', this.textEncoder.encode(gitStatusString)));
+    if (hash == this.gitStatusHash) {
+      return;
+    }
+    this.gitStatusHash = hash;
+
+    this.gitFilenames = new Map<string, string>();
+    for (const gitStatus of gitStatusString.split("\n")) {
       const status = gitStatus.slice(0, 3).trim()
       const name = gitStatus.slice(3)
       this.gitFilenames.set(`${this.gitRoot}/${name}`, status);
