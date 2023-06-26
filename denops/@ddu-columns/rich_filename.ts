@@ -7,7 +7,7 @@ import {
 import { GetTextResult } from "https://deno.land/x/ddu_vim@v3.0.0/base/column.ts";
 import { Denops, fn } from "https://deno.land/x/ddu_vim@v3.0.0/deps.ts";
 import { basename, extname } from "https://deno.land/std@0.190.0/path/mod.ts";
-
+import { crypto, toHashString } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 type Params = {
   sort: string;
@@ -37,18 +37,12 @@ type GitStatus = {
   color: string;
 };
 
-type DirEntry = {
-  name: string;
-  isFile: boolean;
-  isDirectory: boolean;
-  isSymlink: boolean;
-}
-
 export class Column extends BaseColumn<Params> {
   private readonly textEncoder = new TextEncoder();
-  private cache = new Map<string, string>;
+  private lastFilenameInDir = new Map<string, string>;
   private gitRoot: string | undefined;
   private gitFilenames = new Map<string, string>;
+  private gitStatusHash: string = '';
   private readonly defaultFileIcon = {icon: "", highlightGroup: "file", color: "Normal"};
 
   constructor() {
@@ -61,6 +55,9 @@ export class Column extends BaseColumn<Params> {
     columnParams: Params;
   }): Promise<void> {
     await super.onInit(args);
+
+    await this.initGit(args.denops);
+    await this.checkGitDiff(args.denops);
 
     const highlights: Highlight[] = [];
     highlights.push({
@@ -106,6 +103,9 @@ export class Column extends BaseColumn<Params> {
     columnParams: Params;
     items: DduItem[];
   }): Promise<number> {
+    this.setLastFilenameInDir(args.items, args.columnParams);
+    // await this.checkGitDiff(args.denops);
+
     const widths = await Promise.all(args.items.map(
       async (item) => {
         const action = item?.action as ActionData;
@@ -137,6 +137,7 @@ export class Column extends BaseColumn<Params> {
     endCol: number;
     item: DduItem;
   }): Promise<GetTextResult> {
+    console.log(this.gitFilenames);
     const action = args.item?.action as ActionData;
     const highlights: ItemHighlight[] = [];
     const isDirectory = args.item.isTree ?? false;
@@ -148,8 +149,7 @@ export class Column extends BaseColumn<Params> {
       path += ` -> ${await Deno.realPath(action.path)}`;
     }
 
-
-    const indent = await this.getIndent(action.path ?? '', args.item.__level, args.columnParams);
+    const indent = this.getIndent(action.path ?? '', args.item.__level);
     const indentBytesLength = this.textEncoder.encode(indent).length;
 
     const iconData = this.getIcon(path, args.item.__expanded, isDirectory, isLink); 
@@ -162,7 +162,6 @@ export class Column extends BaseColumn<Params> {
       width: iconBytesLength,
     });
 
-    await this.initGit(args.denops);
     const fullPath = (action.path ?? '') + (isDirectory ? "/" : "");
     const gitStatus = this.getGitStatus(fullPath)
     if (gitStatus != null) {
@@ -197,14 +196,22 @@ export class Column extends BaseColumn<Params> {
     }
     const gitRoot = await denops.call("system", 'git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null | head -1');
     this.gitRoot = (gitRoot as string).trim();
+  }
 
-    // ここからしたを再描画に移動
+  private async checkGitDiff(denops: Denops) {
     if (this.gitRoot == '' || this.gitRoot == undefined) {
       return;
     }
     const gitStatusData = await denops.call("system", 'git status --porcelain -u')
-    const gitStatusString = gitStatusData as string;
-    for (const gitStatus of gitStatusString.trimEnd().split("\n")) {
+    const gitStatusString = (gitStatusData as string).trimEnd();
+    const hash = toHashString(crypto.subtle.digestSync('MD5', this.textEncoder.encode(gitStatusString)));
+    if (hash == this.gitStatusHash) {
+      return;
+    }
+    this.gitStatusHash = hash;
+
+    this.gitFilenames = new Map<string, string>();
+    for (const gitStatus of gitStatusString.split("\n")) {
       const status = gitStatus.slice(0, 3).trim()
       const name = gitStatus.slice(3)
       this.gitFilenames.set(`${this.gitRoot}/${name}`, status);
@@ -237,40 +244,54 @@ export class Column extends BaseColumn<Params> {
     return gitStatuses.get(st) ?? null;
   }
 
-  private async getIndent(path: string, level: number, params: Params): Promise<string> {
-    const indents = [];
+  private setLastFilenameInDir(items: DduItem[], columnParams: Params): void {
+    const levels = items.map((item) => {
+      return item.__level;
+    });
+    const level = Math.max(...levels);
+    const levelItems = items.filter((item) => {
+      return item.__level == level;
+    });
 
-    for (let i = 0; i < level; i++) {
+    const sortMethod = columnParams.sort.toLowerCase();
+    const sortFunc = sortMethod === "extension"
+      ? sortByExtension
+      : sortMethod === "size"
+      ? sortBySize
+      : sortMethod === "time"
+      ? sortByTime
+      : sortMethod === "filename"
+      ? sortByFilename
+      : sortByNone;
+    let sortedItems = levelItems.sort(sortFunc);
+    if (columnParams.sortTreesFirst) {
+      const dirs = sortedItems.filter((item) => item.isTree);
+      const files = sortedItems.filter((item) => !item.isTree);
+      sortedItems = dirs.concat(files);
+    }
+
+    if (sortedItems.length > 0) {
+      const item = sortedItems[sortedItems.length - 1];
+      const path = item.treePath ?? '';
       const paths = path.split("/");
       const name = paths.slice(-1)[0];
       const parentPath = paths.slice(0, -1).join("/");
-      if (!this.cache.has(parentPath)) {
-        const entries: DirEntry[] = [];
-        for await (const _entry of Deno.readDir(parentPath)) {
-          entries.push(_entry);
-        }
-        const sortMethod = params.sort.toLowerCase();
-        const sortFunc = sortMethod == 'filename'
-          ? sortByFilename
-          : sortMethod == 'extension'
-          ? sortByExtension
-          : sortByNone;
-        const sortedEntries = entries.sort(sortFunc);
-        let _entries = sortedEntries;
-        if (params.sortTreesFirst) {
-          const dirs = sortedEntries.filter((_entry) => _entry.isDirectory);
-          const files = sortedEntries.filter((_entry) => !_entry.isDirectory);
-          _entries = dirs.concat(files);
-        }
+      this.lastFilenameInDir.set(parentPath, name);
+    }
+  }
 
-        if (_entries.length > 0) {
-          const entry = _entries[_entries.length - 1];
-          this.cache.set(parentPath, entry.name);
-        }
+  private getIndent(path: string, level: number): string {
+    const indents = [];
+
+    const paths = path.split("/");
+    for (let i = 0; i < level; i++) {
+      const parentPath = paths.slice(0, -1).join("/");
+      const name = paths.pop();
+      if (name == undefined) {
+        break;
       }
-      path = parentPath
 
-      const lastName = this.cache.get(parentPath) ?? "";
+      const lastName = this.lastFilenameInDir.get(parentPath) ?? "";
       const isLast = lastName == name;
       if (i == 0) {
         if (isLast) {
@@ -287,7 +308,7 @@ export class Column extends BaseColumn<Params> {
       }
 
     }
-    return Promise.resolve(indents.join(''));
+    return indents.join('');
   }
 
   private getIcon(
@@ -407,18 +428,30 @@ const gitStatuses = new Map<string, GitStatus>([
   ['??', {status: statusNumbers.undefined, highlightGroup: 'git_undefined', color: palette.yellow}],
 ]);
 
-const sortByFilename = (a: DirEntry, b: DirEntry) => {
-  const nameA = a.name;
-  const nameB = b.name;
-  return nameA < nameB ? -1: nameA > nameB ? 1: 0;
+const sortByFilename = (a: DduItem, b: DduItem) => {
+  const nameA = a.treePath ?? a.word;
+  const nameB = b.treePath ?? b.word;
+  return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
 };
 
-const sortByExtension = (a: DirEntry, b: DirEntry) => {
-  const nameA = extname(a.name);
-  const nameB = extname(b.name);
-  return nameA < nameB ? -1: nameA > nameB ? 1: 0;
+const sortByExtension = (a: DduItem, b: DduItem) => {
+  const nameA = extname(a.word);
+  const nameB = extname(b.word);
+  return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
 };
 
-const sortByNone = (a: DirEntry, b: DirEntry) => {
+const sortBySize = (a: DduItem, b: DduItem) => {
+  const sizeA = a.status?.size ?? -1;
+  const sizeB = b.status?.size ?? -1;
+  return sizeA < sizeB ? -1 : sizeA > sizeB ? 1 : 0;
+};
+
+const sortByTime = (a: DduItem, b: DduItem) => {
+  const timeA = a.status?.time ?? -1;
+  const timeB = b.status?.time ?? -1;
+  return timeA < timeB ? -1 : timeA > timeB ? 1 : 0;
+};
+
+const sortByNone = (_a: DduItem, _b: DduItem) => {
   return 0;
 };
