@@ -104,7 +104,7 @@ export class Column extends BaseColumn<Params> {
     items: DduItem[];
   }): Promise<number> {
     this.setLastFilenameInDir(args.items, args.columnParams);
-    await this.checkGitDiff(args.denops);
+    // await this.checkGitDiff(args.denops);
 
     const widths = await Promise.all(args.items.map(
       async (item) => {
