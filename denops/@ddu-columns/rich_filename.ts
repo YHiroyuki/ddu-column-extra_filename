@@ -35,7 +35,7 @@ export class Column extends BaseColumn<Params> {
   private lastFilenameInDir = new Map<string, string>;
   private gitRoot: string | undefined;
   private gitFilenames = new Map<string, string>;
-  private gitStatusHash: string = '';
+  private gitStatusHash = '';
   private readonly defaultFileIcon = {icon: "", color: palette.default};
 
   constructor() {
@@ -48,8 +48,6 @@ export class Column extends BaseColumn<Params> {
     columnParams: Params;
   }): Promise<void> {
     await super.onInit(args);
-
-    this.initGit(args.denops);
 
     for (const [colorName, colorCode] of colors) {
       const highlightGroup = this.getHighlightName(colorName);
@@ -68,29 +66,20 @@ export class Column extends BaseColumn<Params> {
     items: DduItem[];
   }): Promise<number> {
     this.setLastFilenameInDir(args.items, args.columnParams);
+    this.initGit(args.denops);
     this.checkGitDiff(args.denops);
 
-    const widths = await Promise.all(args.items.map(
-      async (item) => {
+    const widths = args.items.map(
+      (item) => {
         const action = item?.action as ActionData;
-        const isLink = action.isLink ?? false;
         const isDirectory = item.isTree ?? false;
-        let path = basename(action.path ?? item.word) +
-          (isDirectory ? "/" : "");
-
-        if (isLink && action.path) {
-          path += ` -> ${await Deno.realPath(action.path)}`;
-        }
-
-        // indent + icon + spacer + filepath
-        const length = (item.__level * 2) + 3 + 1 + (await fn.strwidth(
-          args.denops,
-          path,
-        ) as number);
+        const path = basename(action.path ?? item.word) + (isDirectory ? "/" : "");
+        const length = (item.__level * 3) + 3 + 1 + path.length;
 
         return length;
-      },
-    )) as number[];
+      }
+    ) as number[];
+
     return Math.max(...widths);
   }
 
@@ -159,7 +148,6 @@ export class Column extends BaseColumn<Params> {
     }
     const gitRoot = await denops.call("system", 'git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null | head -1');
     this.gitRoot = (gitRoot as string).trim();
-    // this.checkGitDiff(denops);
   }
 
   private async checkGitDiff(denops: Denops) {
