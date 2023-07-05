@@ -197,6 +197,9 @@ export class Column extends BaseColumn<Params> {
   }
 
   private setLastFilenameInDir(items: DduItem[], columnParams: Params): void {
+    if (items.length <= 1) {
+      return;
+    }
     const levels = items.map((item) => {
       return item.__level;
     });
