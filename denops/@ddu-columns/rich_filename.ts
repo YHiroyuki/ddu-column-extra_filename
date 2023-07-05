@@ -14,11 +14,6 @@ type Params = {
   sortTreesFirst: boolean;
 };
 
-type Highlight = {
-  highlightGroup: string;
-  color: string;
-};
-
 type ActionData = {
   isDirectory?: boolean;
   isLink?: boolean;
@@ -27,13 +22,11 @@ type ActionData = {
 
 type IconData = {
   icon: string;
-  highlightGroup: string;
   color: string;
 };
 
 type GitStatus = {
   status: number;
-  highlightGroup: string;
   color: string;
 };
 
@@ -43,7 +36,7 @@ export class Column extends BaseColumn<Params> {
   private gitRoot: string | undefined;
   private gitFilenames = new Map<string, string>;
   private gitStatusHash: string = '';
-  private readonly defaultFileIcon = {icon: "", highlightGroup: "file", color: "Normal"};
+  private readonly defaultFileIcon = {icon: "", color: palette.default};
 
   constructor() {
     super();
@@ -56,44 +49,15 @@ export class Column extends BaseColumn<Params> {
   }): Promise<void> {
     await super.onInit(args);
 
-    await this.initGit(args.denops);
-    await this.checkGitDiff(args.denops);
+    this.initGit(args.denops);
 
-    const highlights: Highlight[] = [];
-    highlights.push({
-      highlightGroup: this.defaultFileIcon.highlightGroup,
-      color: this.defaultFileIcon.color,
-    });
-    for (const gitStatus of gitStatuses.values()) {
-      highlights.push({
-        highlightGroup: gitStatus.highlightGroup,
-        color: gitStatus.color,
-      });
-    }
-    for (const icon of specialIcons.values()) {
-      highlights.push({
-        highlightGroup: icon.highlightGroup,
-        color: icon.color,
-      });
-    }
-    for (const icon of extensionIcons.values()) {
-      highlights.push({
-        highlightGroup: icon.highlightGroup,
-        color: icon.color,
-      });
-    }
-    for (const highlight of highlights) {
-      const highlightGroup = this.getHighlightName(highlight.highlightGroup);
-      const color = (() => {
-        const c = highlight.color;
-        return c.startsWith("!")
-          ? colors.get(c.slice(1)) ?? "Normal"
-          : c;
-      })();
-      if (color.startsWith("#")) {
-        await args.denops.cmd(`hi default ${highlightGroup} guifg=${color}`);
+    for (const [colorName, colorCode] of colors) {
+      const highlightGroup = this.getHighlightName(colorName);
+
+      if (colorCode.startsWith("#")) {
+        await args.denops.cmd(`hi default ${highlightGroup} guifg=${colorCode}`);
       } else {
-        await args.denops.cmd(`hi default link ${highlightGroup} ${color}`);
+        await args.denops.cmd(`hi default link ${highlightGroup} ${colorCode}`);
       }
     }
   }
@@ -104,7 +68,7 @@ export class Column extends BaseColumn<Params> {
     items: DduItem[];
   }): Promise<number> {
     this.setLastFilenameInDir(args.items, args.columnParams);
-    // await this.checkGitDiff(args.denops);
+    this.checkGitDiff(args.denops);
 
     const widths = await Promise.all(args.items.map(
       async (item) => {
@@ -137,7 +101,6 @@ export class Column extends BaseColumn<Params> {
     endCol: number;
     item: DduItem;
   }): Promise<GetTextResult> {
-    console.log(this.gitFilenames);
     const action = args.item?.action as ActionData;
     const highlights: ItemHighlight[] = [];
     const isDirectory = args.item.isTree ?? false;
@@ -157,7 +120,7 @@ export class Column extends BaseColumn<Params> {
 
     highlights.push({
       name: "column-filename-icon",
-      hl_group: this.getHighlightName(iconData.highlightGroup),
+      hl_group: this.getHighlightName(iconData.color),
       col: args.startCol + indentBytesLength,
       width: iconBytesLength,
     });
@@ -167,7 +130,7 @@ export class Column extends BaseColumn<Params> {
     if (gitStatus != null) {
       highlights.push({
         name: "column-filename-name",
-        hl_group: this.getHighlightName(gitStatus.highlightGroup),
+        hl_group: this.getHighlightName(gitStatus.color),
         col: args.startCol + indentBytesLength + iconBytesLength + 1,
         width: this.textEncoder.encode(path).length,
       });
@@ -196,6 +159,7 @@ export class Column extends BaseColumn<Params> {
     }
     const gitRoot = await denops.call("system", 'git rev-parse --show-superproject-working-tree --show-toplevel 2>/dev/null | head -1');
     this.gitRoot = (gitRoot as string).trim();
+    // this.checkGitDiff(denops);
   }
 
   private async checkGitDiff(denops: Denops) {
@@ -335,7 +299,7 @@ export class Column extends BaseColumn<Params> {
 
   private getHighlightName(highlightGroup: string): string
   {
-    return `ddu_column_rich_filename_${highlightGroup}`;
+    return `DduColumnRichFilename_${highlightGroup}`;
   }
 }
 
@@ -359,50 +323,50 @@ const colors = new Map<string, string>([
 ]);
 
 const palette = {
-  default: "!default",
-  aqua: "!aqua",
-  beige: "!beige",
-  blue: "!blue",
-  brown: "!brown",
-  darkBlue: "!darkBlue",
-  darkOrange: "!darkOrange",
-  green: "!green",
-  lightGreen: "!lightGreen",
-  lightPurple: "!lightPurple",
-  orange: "!orange",
-  pink: "!pink",
-  purple: "!purple",
-  red: "!red",
-  salmon: "!salmon",
-  yellow: "!yellow",
+  default: "default",
+  aqua: "aqua",
+  beige: "beige",
+  blue: "blue",
+  brown: "brown",
+  darkBlue: "darkBlue",
+  darkOrange: "darkOrange",
+  green: "green",
+  lightGreen: "lightGreen",
+  lightPurple: "lightPurple",
+  orange: "orange",
+  pink: "pink",
+  purple: "purple",
+  red: "red",
+  salmon: "salmon",
+  yellow: "yellow",
 };
 
 const specialIcons = new Map<string, IconData>([
-  ['directory_expanded', {icon: "", highlightGroup: "special_directory_expanded", color: palette.green}],
-  ['directory_link', {icon: "", highlightGroup: "special_directory_link", color: palette.green}],
-  ['directory', {icon: "", highlightGroup: "special_directory", color: palette.green}],
-  ['link', {icon: "", highlightGroup: "special_link", color: palette.green}],
+  ['directory_expanded', {icon: "", color: palette.green}],
+  ['directory_link', {icon: "", color: palette.green}],
+  ['directory', {icon: "", color: palette.green}],
+  ['link', {icon: "", color: palette.green}],
 ]);
 
 const extensionIcons = new Map<string, IconData>([
-  ['html', {icon: "", highlightGroup: "file_html", color: palette.darkOrange}],
-  ['htm', {icon: "", highlightGroup: "file_htm", color: palette.darkOrange}],
-  ['sass', {icon: "", highlightGroup: "file_sass", color: palette.default}],
-  ['scss', {icon: "", highlightGroup: "file_scss", color: palette.pink}],
-  ['css', {icon: "", highlightGroup: "file_css", color: palette.blue}],
-  ['md', {icon: "", highlightGroup: "file_md", color: palette.yellow}],
-  ['markdown', {icon: "", highlightGroup: "file_markdown", color: palette.yellow}],
-  ['json', {icon: "", highlightGroup: "file_json", color: palette.beige}],
-  ['js', {icon: "", highlightGroup: "file_js", color: palette.beige}],
-  ['rb', {icon: "", highlightGroup: "file_rb", color: palette.red}],
-  ['php', {icon: "", highlightGroup: "file_php", color: palette.purple}],
-  ['py', {icon: "", highlightGroup: "file_py", color: palette.yellow}],
-  ['pyc', {icon: "", highlightGroup: "file_pyc", color: palette.yellow}],
-  ['vim', {icon: "", highlightGroup: "file_vim", color: palette.green}],
-  ['toml', {icon: "", highlightGroup: "file_toml", color: palette.default}],
-  ['sh', {icon: "", highlightGroup: "file_sh", color: palette.lightPurple}],
-  ['go', {icon: "", highlightGroup: "file_go", color: palette.aqua}],
-  ['ts', {icon: "", highlightGroup: "file_ts", color: palette.blue}],
+  ['html', {icon: "", color: palette.darkOrange}],
+  ['htm', {icon: "", color: palette.darkOrange}],
+  ['sass', {icon: "", color: palette.default}],
+  ['scss', {icon: "", color: palette.pink}],
+  ['css', {icon: "", color: palette.blue}],
+  ['md', {icon: "", color: palette.yellow}],
+  ['markdown', {icon: "", color: palette.yellow}],
+  ['json', {icon: "", color: palette.beige}],
+  ['js', {icon: "", color: palette.beige}],
+  ['rb', {icon: "", color: palette.red}],
+  ['php', {icon: "", color: palette.purple}],
+  ['py', {icon: "", color: palette.yellow}],
+  ['pyc', {icon: "", color: palette.yellow}],
+  ['vim', {icon: "", color: palette.green}],
+  ['toml', {icon: "", color: palette.default}],
+  ['sh', {icon: "", color: palette.lightPurple}],
+  ['go', {icon: "", color: palette.aqua}],
+  ['ts', {icon: "", color: palette.blue}],
 
 ]);
 
@@ -418,14 +382,14 @@ const statusNumbers = {
 }
 
 const gitStatuses = new Map<string, GitStatus>([
-  ['M', {status: statusNumbers.modified, highlightGroup: "git_modified", color: palette.green}],
-  ['T', {status: statusNumbers.type_change, highlightGroup: "git_type_change", color: palette.yellow}],
-  ['A', {status: statusNumbers.add, highlightGroup: 'git_add', color: palette.blue}],
-  ['D', {status: statusNumbers.delete, highlightGroup: 'git_delete', color: palette.salmon}],
-  ['R', {status: statusNumbers.rename, highlightGroup: 'git_rename', color: palette.yellow}],
-  ['C', {status: statusNumbers.copy, highlightGroup: 'git_copy', color: palette.blue}],
-  ['U', {status: statusNumbers.update, highlightGroup: 'git_copy', color: palette.green}],
-  ['??', {status: statusNumbers.undefined, highlightGroup: 'git_undefined', color: palette.yellow}],
+  ['M', {status: statusNumbers.modified, color: palette.green}],
+  ['T', {status: statusNumbers.type_change, color: palette.yellow}],
+  ['A', {status: statusNumbers.add, color: palette.blue}],
+  ['D', {status: statusNumbers.delete, color: palette.salmon}],
+  ['R', {status: statusNumbers.rename, color: palette.yellow}],
+  ['C', {status: statusNumbers.copy, color: palette.blue}],
+  ['U', {status: statusNumbers.update, color: palette.green}],
+  ['??', {status: statusNumbers.undefined, color: palette.yellow}],
 ]);
 
 const sortByFilename = (a: DduItem, b: DduItem) => {
