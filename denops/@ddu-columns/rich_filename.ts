@@ -74,7 +74,7 @@ export class Column extends BaseColumn<Params> {
         const action = item?.action as ActionData;
         const isDirectory = item.isTree ?? false;
         const path = basename(action.path ?? item.word) + (isDirectory ? "/" : "");
-        const length = (item.__level * 3) + 3 + 1 + path.length;
+        const length = (item.__level * 3) + 3 + 1 + this.textEncoder.encode(path).length;
 
         return length;
       }
@@ -126,7 +126,7 @@ export class Column extends BaseColumn<Params> {
     }
 
     const text = indent + iconData.icon + " " + path;
-    const width = await fn.strwidth(args.denops, text) as number;
+    const width = this.textEncoder.encode(text).length;
     const padding = " ".repeat(args.endCol - args.startCol - width);
 
     return Promise.resolve({
