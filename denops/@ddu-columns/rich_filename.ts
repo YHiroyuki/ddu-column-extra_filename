@@ -127,7 +127,7 @@ export class Column extends BaseColumn<Params> {
 
     const text = indent + iconData.icon + " " + path;
     const width = this.textEncoder.encode(text).length;
-    const padding = " ".repeat(args.endCol - args.startCol - width);
+    const padding = " ".repeat(Math.max(0, args.endCol - args.startCol - width));
 
     return Promise.resolve({
       text: text + padding,
